@@ -22,6 +22,8 @@ sys.stdout = original_stdout
 
 fooocus_expansion_path = os.path.abspath(os.path.join(os.path.dirname(__file__),
                                                       'fooocus_expansion'))
+fooocus_weights_path = os.path.join(fooocus_expansion_path, 'pytorch_model.bin')
+wizzgpt_weights_path = os.path.join(fooocus_expansion_path, 'wizzgpt_pytorch_model.bin')
 fooocus_magic_split = [
     ', extremely',
     ', intricate,',
@@ -43,10 +45,18 @@ def remove_pattern(x, pattern):
 
 
 class FooocusExpansion:
-    def __init__(self):
+    def __init__(self, model_choice="Fooocus", max_length=256, temperature=1.0, top_k=50, repetition_penalty=1.0):
         self.tokenizer = AutoTokenizer.from_pretrained(fooocus_expansion_path)
         self.model = AutoModelForCausalLM.from_pretrained(fooocus_expansion_path)
+        if model_choice == "WizzGPT" and os.path.exists(wizzgpt_weights_path):
+            state_dict = torch.load(wizzgpt_weights_path, map_location="cpu")
+            self.model.load_state_dict(state_dict)
         self.model.eval()
+
+        self.max_length = max_length
+        self.temperature = temperature
+        self.top_k = top_k
+        self.repetition_penalty = repetition_penalty
 
         load_device = model_management.text_encoder_device()
 
@@ -76,7 +86,10 @@ class FooocusExpansion:
         # https://huggingface.co/docs/transformers/generation_strategies
         features = self.model.generate(**tokenized_kwargs,
                                        num_beams=1,
-                                       max_new_tokens=256,
+                                       max_length=self.max_length,
+                                       temperature=self.temperature,
+                                       top_k=self.top_k,
+                                       repetition_penalty=self.repetition_penalty,
                                        do_sample=True)
 
         response = self.tokenizer.batch_decode(features, skip_special_tokens=True)
@@ -95,6 +108,11 @@ class PromptExpansion:
                 "text": ("STRING", {"multiline": True}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFF}),
                 "log_prompt": (["No", "Yes"], {"default": "No"}),
+                "model": (["Fooocus", "WizzGPT"], {"default": "Fooocus"}),
+                "max_length": ("INT", {"default": 75, "min": 1, "max": 512, "step": 16}),
+                "temperature": ("FLOAT", {"default": 1.25, "min": 0.1, "max": 5.0, "step": 0.05}),
+                "top_k": ("INT", {"default": 40, "min": 1, "max": 128}),
+                "repetition_penalty": ("FLOAT", {"default": 1.32, "min": 0.1, "max": 2.0, "step": 0.01}),
             },
         }
 
@@ -106,8 +124,12 @@ class PromptExpansion:
 
     @staticmethod
     @torch.no_grad()
-    def expand_prompt(text, seed, log_prompt):
-        expansion = FooocusExpansion()
+    def expand_prompt(text, seed, log_prompt, model, max_length, temperature, top_k, repetition_penalty):
+        expansion = FooocusExpansion(model_choice=model,
+                                     max_length=max_length,
+                                     temperature=temperature,
+                                     top_k=top_k,
+                                     repetition_penalty=repetition_penalty)
 
         prompt = remove_empty_str([safe_str(text)], default='')[0]
 
